@@ -10,6 +10,7 @@ import categoryRoutes from './routes/category.js';
 import locationRoutes from './routes/location.js';
 import companyRoutes from './routes/company.js';
 import productRoutes from './routes/product.js';
+import transactionRoutes from './routes/transaction.js';
 
 dotenv.config();
 
@@ -36,6 +37,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/category', categoryRoutes);
 app.use('/api/product', productRoutes);
+app.use('/api/transaction', transactionRoutes);
 app.use('/api/company', companyRoutes);
 app.use('/api/location', locationRoutes);
 app.use("/api/users", userRoutes);

@@ -98,7 +98,7 @@ const Sidebar = ({ collapsed, setCollapsed }) => {
         <button
         onClick={() => setCollapsed(!collapsed)}
         className="absolute right-[-12px] top-1/2 -translate-y-1/2 
-        bg-green-700 hover:bg-green-800 text-white p-2 rounded-full shadow-md 
+        bg-blue-700 hover:bg-blue-800 text-white p-2 rounded-full shadow-md 
         transition-all duration-300"
         >
         {collapsed ? <FaChevronRight size={14} /> : <FaChevronLeft size={14} />}

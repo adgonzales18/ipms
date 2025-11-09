@@ -9,9 +9,9 @@ const Root = () => {
     useEffect(() => {
         if (user) {
             if (user.role === "admin") {
-                navigate("/admin-dashboard");
+                navigate("/admin");
             } else if (user.role === "user") {
-                navigate("/dashboard");
+                navigate("/user");
             } else {
                 navigate("/login")
             }

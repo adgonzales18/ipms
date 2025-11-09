@@ -19,7 +19,7 @@ const getLocations = async (req, res) => {
     try {
         const { forTransfer} = req.query;
         let query = {};
-        if (req.user.role !== admin) {
+        if (req.user.role !== "admin") {
             if (forTransfer === "true") {
                 query = {};
             } else {
