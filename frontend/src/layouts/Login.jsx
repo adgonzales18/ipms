@@ -52,10 +52,33 @@ const Login = () => {
     };
 
     return (
-        <section 
+        <section
             className={`min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-300 via-blue-400 to-blue-500 px-4 transition-opacity duration-700 ${
             fadeOut ? "opacity-0" : "opacity-100"
           }`}>
+
+            {/* Demo Credentials Sticky Note */}
+            <div className="fixed top-6 right-6 bg-yellow-200 p-4 rounded-lg shadow-lg border-l-4 border-yellow-500 max-w-xs z-50 transform rotate-1 hover:rotate-0 transition-transform">
+              <div className="flex items-start gap-2">
+                <div className="text-yellow-700 font-bold text-lg">📌</div>
+                <div>
+                  <h3 className="font-bold text-gray-800 text-sm mb-2">Demo Credentials</h3>
+                  <div className="text-xs text-gray-700 space-y-2">
+                    <div>
+                      <p className="font-semibold text-blue-700">Admin Account:</p>
+                      <p className="font-mono">admin@example.com</p>
+                      <p className="font-mono">admin12345</p>
+                    </div>
+                    <div className="border-t border-yellow-400 pt-2">
+                      <p className="font-semibold text-green-700">Viewer Account:</p>
+                      <p className="font-mono">user@example.com</p>
+                      <p className="font-mono">user12345</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col md:flex-row w-full max-w-5xl bg-white rounded-3xl shadow-2xl overflow-hidden transform transition-all hover:shadow-3xl duration-300">
                 {/* Left Panel */}
                 <div className="w-full md:w-1/2 p-10 flex flex-col justify-center relative">

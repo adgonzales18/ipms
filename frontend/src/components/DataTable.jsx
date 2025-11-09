@@ -42,7 +42,8 @@ const DataTable = ({
   onSearch = null,
   selectable = false,
   actions = [],
-  headerActions = null
+  headerActions = null,
+  onRowClick = null
 }) => {
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({});
@@ -268,9 +269,10 @@ const DataTable = ({
                   return (
                     <tr
                       key={rowId}
+                      onClick={() => onRowClick && onRowClick(row)}
                       className={`border-b border-gray-200 hover:bg-gray-50 ${
                         isSelected ? "bg-blue-50" : "bg-white"
-                      }`}
+                      } ${onRowClick ? "cursor-pointer" : ""}`}
                     >
                       {/* Row Checkbox */}
                       {selectable && (

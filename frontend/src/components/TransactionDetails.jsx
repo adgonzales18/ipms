@@ -14,6 +14,8 @@ import {
   FaSearch,
   FaBan,
 } from "react-icons/fa";
+import Alert from "./Alert";
+import ConfirmDialog from "./ConfirmDialog";
 
   function TransactionDetails({
   transaction,
@@ -24,7 +26,7 @@ import {
 }) {
   const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
   const authHeaders = () => ({
-    headers: { Authorization: `Bearer ${sessionStorage.getItem("pos-token")}` },
+    headers: { Authorization: `Bearer ${sessionStorage.getItem("token")}` },
   });
 
   const [showReceipt, setShowReceipt] = useState(false);
@@ -43,6 +45,10 @@ import {
   // For editing rows - MOVE ALL HOOKS TO TOP LEVEL
   const [editingRow, setEditingRow] = useState(null);
   const [tempRowData, setTempRowData] = useState({});
+
+  // Alert and Confirm Dialog
+  const [alert, setAlert] = useState(null);
+  const [confirmDialog, setConfirmDialog] = useState(null);
 
   // Initialize state only once when component mounts
   useEffect(() => {
@@ -77,7 +83,7 @@ import {
 
   const currentUser = (() => {
     try {
-      return JSON.parse(sessionStorage.getItem("pos-user"));
+      return JSON.parse(sessionStorage.getItem("user"));
     } catch {
       return null;
     }
@@ -109,7 +115,7 @@ import {
     try {
       setIsProcessing(true);
       await onUpdateInbound?.(payload, false); // don’t refresh parent immediately
-        alert("✅ Inbound quantities updated successfully!");
+        setAlert({ type: "success", message: "✅ Inbound quantities updated successfully!" });
         setEditableProducts((prev) =>
           prev.map((p) => ({
             ...p,
@@ -121,7 +127,7 @@ import {
         );
     } catch (err) {
       console.error("Failed to update inbound:", err);
-      alert("Failed to save changes. Please try again.");
+      setAlert({ type: "error", message: "Failed to save changes. Please try again." });
     } finally {
       setIsProcessing(false);
     }
@@ -199,7 +205,7 @@ import {
   };
 
   // ✅ Approve / Reject handlers
-  const handleAction = async (actionType) => {
+  const handleAction = (actionType) => {
     if (!onAction) return;
 
     // 🟡 If inbound approval, check quantities first
@@ -212,15 +218,31 @@ import {
       );
 
       if (incomplete) {
-        const confirmContinue = window.confirm(
-          "⚠️ Some items have zero or missing received quantity.\nAre you sure you want to approve this inbound?"
-        );
-        if (!confirmContinue) return;
+        setConfirmDialog({
+          title: "Incomplete Quantities",
+          message: "⚠️ Some items have zero or missing received quantity.\nAre you sure you want to approve this inbound?",
+          type: "warning",
+          confirmText: "Approve Anyway",
+          onConfirm: async () => {
+            setConfirmDialog(null);
+            await executeAction(actionType);
+          },
+          onCancel: () => setConfirmDialog(null),
+        });
+        return;
       } else {
-        const confirmInbound = window.confirm(
-          "Are you sure all received quantities are correct?\nThis will update stock levels."
-        );
-        if (!confirmInbound) return;
+        setConfirmDialog({
+          title: "Confirm Inbound Approval",
+          message: "Are you sure all received quantities are correct?\nThis will update stock levels.",
+          type: "info",
+          confirmText: "Approve",
+          onConfirm: async () => {
+            setConfirmDialog(null);
+            await executeAction(actionType);
+          },
+          onCancel: () => setConfirmDialog(null),
+        });
+        return;
       }
     } else {
       // 🧾 Regular approval confirmation
@@ -228,123 +250,160 @@ import {
         actionType === "approve"
           ? "Approve this transaction?"
           : "Reject this transaction?";
-      if (!window.confirm(confirmMsg)) return;
-    }
 
+      setConfirmDialog({
+        title: actionType === "approve" ? "Confirm Approval" : "Confirm Rejection",
+        message: confirmMsg,
+        type: actionType === "approve" ? "info" : "warning",
+        confirmText: actionType === "approve" ? "Approve" : "Reject",
+        onConfirm: async () => {
+          setConfirmDialog(null);
+          await executeAction(actionType);
+        },
+        onCancel: () => setConfirmDialog(null),
+      });
+    }
+  };
+
+  // Execute the action
+  const executeAction = async (actionType) => {
     try {
       setIsProcessing(true);
       await onAction(transaction._id, actionType);
-      alert(`Transaction ${actionType}d successfully!`);
+      setAlert({ type: "success", message: `Transaction ${actionType}d successfully!` });
       onClose();
     } catch (err) {
       console.error(`❌ Failed to ${actionType}:`, err);
-      alert(`Failed to ${actionType} transaction. Please try again.`);
+      setAlert({ type: "error", message: `Failed to ${actionType} transaction. Please try again.` });
     } finally {
       setIsProcessing(false);
     }
   };
 
   // ✅ Cancel approved purchase transaction
-  const handleCancel = async () => {
-    if (!window.confirm(
-      "⚠️ Are you sure you want to cancel this purchase order?\n\n" +
-      "This will:\n" +
-      "- Mark the PO as cancelled\n" +
-      "- Delete the linked inbound transaction\n" +
-      "- Reverse any stock that was received\n\n" +
-      "This action cannot be undone!"
-    )) {
-      return;
-    }
-
-    try {
-      setIsProcessing(true);
-      await onAction(transaction._id, "cancel");
-      alert("✅ Purchase order cancelled successfully!");
-      onClose();
-    } catch (err) {
-      console.error("❌ Failed to cancel:", err);
-      alert("Failed to cancel transaction. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleCancel = () => {
+    setConfirmDialog({
+      title: "Cancel Purchase Order",
+      message: "⚠️ Are you sure you want to cancel this purchase order?\n\nThis will:\n- Mark the PO as cancelled\n- Delete the linked inbound transaction\n- Reverse any stock that was received\n\nThis action cannot be undone!",
+      type: "danger",
+      confirmText: "Cancel PO",
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          setIsProcessing(true);
+          await onAction(transaction._id, "cancel");
+          setAlert({ type: "success", message: "✅ Purchase order cancelled successfully!" });
+          onClose();
+        } catch (err) {
+          console.error("❌ Failed to cancel:", err);
+          setAlert({ type: "error", message: "Failed to cancel transaction. Please try again." });
+        } finally {
+          setIsProcessing(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null),
+    });
   };
 
   // ✅ Delete draft transaction
-  const handleDeleteDraft = async () => {
-    if (!window.confirm("⚠️ Are you sure you want to delete this draft?\n\nThis action cannot be undone!")) {
-      return;
-    }
-
-    try {
-      setIsProcessing(true);
-      await axios.delete(`${API_BASE_URL}/api/transaction/${transaction._id}/draft`, authHeaders());
-      alert("✅ Draft deleted successfully!");
-      onClose();
-      window.location.reload();
-    } catch (err) {
-      console.error("❌ Failed to delete draft:", err);
-      alert("Failed to delete draft. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleDeleteDraft = () => {
+    setConfirmDialog({
+      title: "Delete Draft",
+      message: "⚠️ Are you sure you want to delete this draft?\n\nThis action cannot be undone!",
+      type: "danger",
+      confirmText: "Delete",
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          setIsProcessing(true);
+          await axios.delete(`${API_BASE_URL}/api/transaction/${transaction._id}/draft`, authHeaders());
+          setAlert({ type: "success", message: "✅ Draft deleted successfully!" });
+          onClose();
+          window.location.reload();
+        } catch (err) {
+          console.error("❌ Failed to delete draft:", err);
+          setAlert({ type: "error", message: "Failed to delete draft. Please try again." });
+        } finally {
+          setIsProcessing(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null),
+    });
   };
 
   // ✅ Submit draft for approval
-  const handleSubmitDraft = async () => {
-    if (!window.confirm("Submit this draft for approval?")) {
-      return;
-    }
-
-    try {
-      setIsProcessing(true);
-      await onAction(transaction._id, "submit");
-      alert("✅ Draft submitted for approval!");
-      onClose();
-    } catch (err) {
-      console.error("❌ Failed to submit draft:", err);
-      alert("Failed to submit draft. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleSubmitDraft = () => {
+    setConfirmDialog({
+      title: "Submit Draft",
+      message: "Submit this draft for approval?",
+      type: "info",
+      confirmText: "Submit",
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          setIsProcessing(true);
+          await onAction(transaction._id, "submit");
+          setAlert({ type: "success", message: "✅ Draft submitted for approval!" });
+          onClose();
+        } catch (err) {
+          console.error("❌ Failed to submit draft:", err);
+          setAlert({ type: "error", message: "Failed to submit draft. Please try again." });
+        } finally {
+          setIsProcessing(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null),
+    });
   };
 
   // ✅ Move cancelled to draft
-  const handleMoveToDraft = async () => {
-    if (!window.confirm("Move this cancelled transaction back to draft status?")) {
-      return;
-    }
-
-    try {
-      setIsProcessing(true);
-      await onAction(transaction._id, "move-to-draft");
-      alert("✅ Transaction moved to draft successfully!");
-      onClose();
-    } catch (err) {
-      console.error("❌ Failed to move to draft:", err);
-      alert("Failed to move to draft. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleMoveToDraft = () => {
+    setConfirmDialog({
+      title: "Move to Draft",
+      message: "Move this cancelled transaction back to draft status?",
+      type: "info",
+      confirmText: "Move to Draft",
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          setIsProcessing(true);
+          await onAction(transaction._id, "move-to-draft");
+          setAlert({ type: "success", message: "✅ Transaction moved to draft successfully!" });
+          onClose();
+        } catch (err) {
+          console.error("❌ Failed to move to draft:", err);
+          setAlert({ type: "error", message: "Failed to move to draft. Please try again." });
+        } finally {
+          setIsProcessing(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null),
+    });
   };
 
   // ✅ Resubmit cancelled transaction
-  const handleResubmit = async () => {
-    if (!window.confirm("Resubmit this cancelled transaction for approval?")) {
-      return;
-    }
-
-    try {
-      setIsProcessing(true);
-      await onAction(transaction._id, "resubmit");
-      alert("✅ Transaction resubmitted for approval!");
-      onClose();
-    } catch (err) {
-      console.error("❌ Failed to resubmit:", err);
-      alert("Failed to resubmit transaction. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleResubmit = () => {
+    setConfirmDialog({
+      title: "Resubmit Transaction",
+      message: "Resubmit this cancelled transaction for approval?",
+      type: "info",
+      confirmText: "Resubmit",
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          setIsProcessing(true);
+          await onAction(transaction._id, "resubmit");
+          setAlert({ type: "success", message: "✅ Transaction resubmitted for approval!" });
+          onClose();
+        } catch (err) {
+          console.error("❌ Failed to resubmit:", err);
+          setAlert({ type: "error", message: "Failed to resubmit transaction. Please try again." });
+        } finally {
+          setIsProcessing(false);
+        }
+      },
+      onCancel: () => setConfirmDialog(null),
+    });
   };
 
   // ✅ Close handler - simple and clean with debugging
@@ -415,44 +474,47 @@ import {
       }
     };
 
-    const handleDeleteRow = async (index) => {
+    const handleDeleteRow = (index) => {
       if (products.length <= 1) {
-        setSuccessMessage("⚠️ Cannot delete the last item. A transaction must have at least one product.");
-        setTimeout(() => setSuccessMessage(""), 3000);
+        setAlert({ type: "warning", message: "⚠️ Cannot delete the last item. A transaction must have at least one product." });
         return;
       }
 
       const productName = products[index].product?.productName || "this item";
-      if (!window.confirm(`Are you sure you want to delete ${productName}?`)) {
-        return;
-      }
+      setConfirmDialog({
+        title: "Delete Item",
+        message: `Are you sure you want to delete ${productName}?`,
+        type: "danger",
+        confirmText: "Delete",
+        onConfirm: async () => {
+          setConfirmDialog(null);
+          try {
+            const updated = [...editableProducts];
+            updated.splice(index, 1);
 
-      try {
-        const updated = [...editableProducts];
-        updated.splice(index, 1);
+            await axios.put(
+              `${API_BASE_URL}/api/transaction/${transaction._id}/purchase`,
+              {
+                products: updated.map((p) => ({
+                  productId: p.product?._id || p.product,
+                  quantity: p.quantity,
+                  unitPrice: p.unitPrice,
+                  discountPercent: p.discountPercent,
+                })),
+              },
+              authHeaders()
+            );
 
-        await axios.put(
-          `${API_BASE_URL}/api/transaction/${transaction._id}/purchase`,
-          {
-            products: updated.map((p) => ({
-              productId: p.product?._id || p.product,
-              quantity: p.quantity,
-              unitPrice: p.unitPrice,
-              discountPercent: p.discountPercent,
-            })),
-          },
-          authHeaders()
-        );
-
-        setEditableProducts(updated);
-        setHasChanges(true);
-        setSuccessMessage("✅ Item deleted successfully!");
-        setTimeout(() => setSuccessMessage(""), 3000);
-      } catch (err) {
-        console.error("❌ Failed to delete row:", err);
-        setSuccessMessage("❌ Failed to delete item. Please try again.");
-        setTimeout(() => setSuccessMessage(""), 3000);
-      }
+            setEditableProducts(updated);
+            setHasChanges(true);
+            setAlert({ type: "success", message: "✅ Item deleted successfully!" });
+          } catch (err) {
+            console.error("❌ Failed to delete row:", err);
+            setAlert({ type: "error", message: "❌ Failed to delete item. Please try again." });
+          }
+        },
+        onCancel: () => setConfirmDialog(null),
+      });
     };
 
     // 🟩 INBOUND
@@ -497,10 +559,10 @@ import {
             });
             setEditingRow(null);
             setTempReceivedQty(null);
-            alert("✅ Quantity updated successfully!");
+            setAlert({ type: "success", message: "✅ Quantity updated successfully!" });
         } catch (err) {
           console.error("❌ Failed to save row:", err);
-          alert("Failed to save row changes.");
+          setAlert({ type: "error", message: "Failed to save row changes." });
         }
       };
 
@@ -729,45 +791,48 @@ import {
         }
       };
 
-      const handleDeleteRow = async (index) => {
+      const handleDeleteRow = (index) => {
         if (products.length <= 1) {
-          setSuccessMessage("⚠️ Cannot delete the last item. A transaction must have at least one product.");
-          setTimeout(() => setSuccessMessage(""), 3000);
+          setAlert({ type: "warning", message: "⚠️ Cannot delete the last item. A transaction must have at least one product." });
           return;
         }
 
         const productName = products[index].product?.productName || "this item";
-        if (!window.confirm(`Are you sure you want to delete ${productName}?`)) {
-          return;
-        }
+        setConfirmDialog({
+          title: "Delete Item",
+          message: `Are you sure you want to delete ${productName}?`,
+          type: "danger",
+          confirmText: "Delete",
+          onConfirm: async () => {
+            setConfirmDialog(null);
+            try {
+              const updated = [...editableProducts];
+              updated.splice(index, 1); // Remove the item at index
 
-        try {
-          const updated = [...editableProducts];
-          updated.splice(index, 1); // Remove the item at index
+              // Make direct API call
+              await axios.put(
+                `${API_BASE_URL}/api/transaction/${transaction._id}/purchase`,
+                {
+                  products: updated.map((p) => ({
+                    productId: p.product?._id || p.product,
+                    quantity: p.quantity,
+                    unitPrice: p.unitPrice,
+                    discountPercent: p.discountPercent,
+                  })),
+                },
+                authHeaders()
+              );
 
-          // Make direct API call
-          await axios.put(
-            `${API_BASE_URL}/api/transaction/${transaction._id}/purchase`,
-            {
-              products: updated.map((p) => ({
-                productId: p.product?._id || p.product,
-                quantity: p.quantity,
-                unitPrice: p.unitPrice,
-                discountPercent: p.discountPercent,
-              })),
-            },
-            authHeaders()
-          );
-
-          setEditableProducts(updated);
-          setHasChanges(true); // Mark that we have changes
-          setSuccessMessage("✅ Item deleted successfully!");
-          setTimeout(() => setSuccessMessage(""), 3000);
-        } catch (err) {
-          console.error("❌ Failed to delete row:", err);
-          setSuccessMessage("❌ Failed to delete item. Please try again.");
-          setTimeout(() => setSuccessMessage(""), 3000);
-        }
+              setEditableProducts(updated);
+              setHasChanges(true); // Mark that we have changes
+              setAlert({ type: "success", message: "✅ Item deleted successfully!" });
+            } catch (err) {
+              console.error("❌ Failed to delete row:", err);
+              setAlert({ type: "error", message: "❌ Failed to delete item. Please try again." });
+            }
+          },
+          onCancel: () => setConfirmDialog(null),
+        });
       };
 
       return (
@@ -1216,6 +1281,28 @@ import {
         <ReceiptPreview
           transaction={{ ...transaction, products: editableProducts, note }}
           onClose={() => setShowReceipt(false)}
+        />
+      )}
+
+      {/* Alert */}
+      {alert && (
+        <Alert
+          type={alert.type}
+          message={alert.message}
+          onClose={() => setAlert(null)}
+        />
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={confirmDialog.onCancel}
+          confirmText={confirmDialog.confirmText}
+          type={confirmDialog.type}
+          loading={isProcessing}
         />
       )}
     </div>

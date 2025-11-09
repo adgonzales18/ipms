@@ -7,7 +7,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get("/", authMiddleware, getLocations);
-router.post("/", authMiddleware, createLocation);
+router.post("/add", authMiddleware, createLocation);
 router.patch("/:id", authMiddleware, updateLocation);
 router.delete("/:id", authMiddleware, deleteLocation);
 

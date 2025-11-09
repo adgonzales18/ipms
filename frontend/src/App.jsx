@@ -9,6 +9,10 @@ import Logout from './components/Logout.jsx';
 import DataManagement from './pages/DataManagement.jsx';
 import Transaction from './pages/Transaction.jsx';
 import Procurement from './pages/Procurement.jsx';
+import Approvals from './pages/Approvals.jsx';
+import Users from './pages/Users.jsx';
+import Profile from './pages/Profile.jsx';
+import Dashboard from './pages/Dashboard.jsx';
 
 function App() {
 
@@ -25,14 +29,14 @@ function App() {
           </ProtectedRoutes>
         }
         >
-          <Route index element = {<TempFeature/>} />
+          <Route index element = {<Dashboard/>} />
           <Route path="products" element = {<Products/>} />
           <Route path="data-management" element={<DataManagement/>} />
           <Route path="transactions" element={<Transaction/>} />
           <Route path="procurement" element={<Procurement/>} />
-          <Route path="approvals" element={<TempFeature/>} />
-          <Route path="users" element={<TempFeature/>} />
-          <Route path="profile" element={<TempFeature/>} />
+          <Route path="approvals" element={<Approvals/>} />
+          <Route path="users" element={<Users/>} />
+          <Route path="profile" element={<Profile/>} />
           <Route path="logout" element={<Logout/>} />
         </Route>
 
@@ -40,15 +44,15 @@ function App() {
         <Route
           path="/user"
           element={
-            <ProtectedRoutes requireRole={["user"]}>
+            <ProtectedRoutes requireRole={["viewer"]}>
               <MainLayout/>
             </ProtectedRoutes>
           }
         >
-          <Route index element = {<TempFeature/>} />
+          <Route index element = {<Products/>} />
           <Route path="products" element = {<Products/>} />
-          <Route path="transactions" element={<TempFeature/>} />
-          <Route path="profile" element={<TempFeature/>} />
+          <Route path="transactions" element={<Transaction/>} />
+          <Route path="profile" element={<Profile/>} />
           <Route path="logout" element={<Logout/>} />
         </Route>
          {/* ================= Auth & Fallback ================= */}

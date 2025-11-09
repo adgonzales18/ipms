@@ -1,32 +1,59 @@
 import React from "react";
-import { FaTimes } from "react-icons/fa";
+import { FaExclamationTriangle } from "react-icons/fa";
 
-export default function ConfirmDialog({ title, message, onConfirm, onCancel, loading }) {
+export default function ConfirmDialog({
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  loading,
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+  type = "danger"
+}) {
+  const typeStyles = {
+    danger: {
+      button: "bg-red-600 hover:bg-red-700",
+      icon: "text-red-600",
+    },
+    warning: {
+      button: "bg-yellow-600 hover:bg-yellow-700",
+      icon: "text-yellow-600",
+    },
+    info: {
+      button: "bg-blue-600 hover:bg-blue-700",
+      icon: "text-blue-600",
+    },
+  };
+
+  const style = typeStyles[type] || typeStyles.danger;
+
   return (
-    <div className="fixed inset-0 backdrop-blur-sm backdrop-brightness-75 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
-        <button
-          className="absolute top-3 right-3 text-gray-600 hover:text-gray-900"
-          onClick={onCancel}
-        >
-          <FaTimes />
-        </button>
-        <h2 className="text-lg font-bold mb-3">{title || "Confirm"}</h2>
-        <p className="mb-6">{message || "Are you sure?"}</p>
-        <div className="flex justify-end gap-2">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-blue-900 bg-opacity-50">
+      <div className="bg-white rounded-2xl shadow-xl w-[400px] max-w-[90vw] p-6 animate-fadeIn">
+        <div className="flex items-start gap-4 mb-4">
+          <div className={`flex-shrink-0 ${style.icon}`}>
+            <FaExclamationTriangle size={24} />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">{title || "Confirm"}</h3>
+            <p className="text-gray-600">{message || "Are you sure?"}</p>
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 mt-6">
           <button
             onClick={onCancel}
-            className="bg-gray-200 text-gray-700 px-4 py-2 rounded"
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
             disabled={loading}
           >
-            Cancel
+            {cancelText}
           </button>
           <button
             onClick={onConfirm}
             disabled={loading}
-            className="bg-red-600 text-white px-4 py-2 rounded"
+            className={`${style.button} text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50`}
           >
-            {loading ? "Deleting..." : "Delete"}
+            {loading ? "Processing..." : confirmText}
           </button>
         </div>
       </div>

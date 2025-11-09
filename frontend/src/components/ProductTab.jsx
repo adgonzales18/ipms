@@ -64,7 +64,7 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
       const handleAddProduct = async (data) => {
         setLoading(true);
         await apiRequest(async () => {
-          await axios.post(`${API_BASE_URL}/api/product`, data, authHeaders());
+          await axios.post(`${API_BASE_URL}/api/product/add`, data, authHeaders());
           await fetchAll();
         });
         setShowAdd(false);
@@ -79,6 +79,31 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
         });
         setEditingProduct(null);
         setLoading(false);
+      };
+
+      // Helper function to parse CSV line properly (handles quoted fields)
+      const parseCSVLine = (line) => {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+
+        // Push the last field
+        result.push(current.trim());
+
+        return result;
       };
 
       const handleImport = async () => {
@@ -101,41 +126,161 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
               return;
             }
 
-            // Parse CSV
-            const headers = lines[0].split(",").map((h) => h.trim().replace(/"/g, ""));
+            // Parse CSV with header mapping using proper CSV parser
+            const headerLine = parseCSVLine(lines[0]).map((h) => h.replace(/"/g, "").toLowerCase());
             const products = [];
 
-            for (let i = 1; i < lines.length; i++) {
-              const values = lines[i].split(",").map((v) => v.trim().replace(/"/g, ""));
+            console.log("📋 CSV Headers detected:", headerLine);
 
-              // Map CSV columns to product fields
+            // Map headers to field names (support multiple variations)
+            const headerMap = {
+              itemCode: ["itemcode", "item code", "code", "sku"],
+              productName: ["productname", "product name", "name", "product"],
+              productDescription: ["productdescription", "product description", "description", "desc"],
+              unitMeasure: ["unitmeasure", "unit measure", "unit", "uom"],
+              costPrice: ["costprice", "cost price", "cost"],
+              sellingPrice: ["sellingprice", "selling price", "price", "sell price"],
+              stock: ["stock", "quantity", "qty"],
+              location: ["location", "locationname", "location name"],
+              category: ["category", "categoryname", "category name"],
+            };
+
+            // Find column indices based on headers
+            const columnIndices = {};
+            for (const [field, variations] of Object.entries(headerMap)) {
+              const index = headerLine.findIndex(h => variations.includes(h));
+              if (index !== -1) {
+                columnIndices[field] = index;
+              }
+            }
+
+            // Debug: Show detected column indices
+            console.log("🔍 Column mapping:", columnIndices);
+
+            // Validate required columns exist
+            const requiredFields = ["itemCode", "productName", "location", "category"];
+            const missingFields = requiredFields.filter(f => columnIndices[f] === undefined);
+            if (missingFields.length > 0) {
+              alert(`Missing required columns: ${missingFields.join(", ")}\n\nDetected headers: ${headerLine.join(", ")}\n\nPlease download the template for correct format.`);
+              setLoading(false);
+              return;
+            }
+
+            // Track what needs to be created
+            const newLocations = new Set();
+            const newCategories = new Set();
+            const locationMap = new Map(locations.map(l => [l.locationName, l._id]));
+            const categoryMap = new Map(categories.map(c => [c.categoryName, c._id]));
+
+            // First pass: collect all unique locations and categories that need to be created
+            for (let i = 1; i < lines.length; i++) {
+              const values = parseCSVLine(lines[i]).map((v) => v.replace(/"/g, ""));
+
+              const locationName = values[columnIndices.location] || "";
+              const categoryName = values[columnIndices.category] || "";
+
+              if (locationName && !locationMap.has(locationName)) {
+                newLocations.add(locationName);
+              }
+
+              if (categoryName && !categoryMap.has(categoryName)) {
+                newCategories.add(categoryName);
+              }
+            }
+
+            console.log("📍 New locations to create:", Array.from(newLocations));
+            console.log("📁 New categories to create:", Array.from(newCategories));
+
+            // Create missing locations
+            if (newLocations.size > 0) {
+              console.log(`Creating ${newLocations.size} new location(s):`, Array.from(newLocations));
+              for (const locationName of newLocations) {
+                try {
+                  const res = await axios.post(
+                    `${API_BASE_URL}/api/location/add`,
+                    { locationName, locationDescription: "" },
+                    authHeaders()
+                  );
+                  const newLocation = res.data?.data || res.data?.location || res.data;
+                  if (newLocation._id) {
+                    locationMap.set(locationName, newLocation._id);
+                    console.log(`✅ Created location: ${locationName} (ID: ${newLocation._id})`);
+                  }
+                } catch (err) {
+                  console.error(`❌ Failed to create location: ${locationName}`, err.response?.data || err.message);
+                }
+              }
+            }
+
+            // Create missing categories
+            if (newCategories.size > 0) {
+              console.log(`Creating ${newCategories.size} new category(ies):`, Array.from(newCategories));
+              for (const categoryName of newCategories) {
+                try {
+                  const res = await axios.post(
+                    `${API_BASE_URL}/api/category/add`,
+                    { categoryName, categoryDescription: "" },
+                    authHeaders()
+                  );
+                  const newCategory = res.data?.data || res.data?.category || res.data;
+                  if (newCategory._id) {
+                    categoryMap.set(categoryName, newCategory._id);
+                    console.log(`✅ Created category: ${categoryName} (ID: ${newCategory._id})`);
+                  }
+                } catch (err) {
+                  console.error(`❌ Failed to create category: ${categoryName}`, err.response?.data || err.message);
+                }
+              }
+            }
+
+            // Second pass: create products with resolved IDs
+            for (let i = 1; i < lines.length; i++) {
+              const values = parseCSVLine(lines[i]).map((v) => v.replace(/"/g, ""));
+
+              // Skip empty lines
+              if (values.every(v => !v)) continue;
+
+              const locationName = values[columnIndices.location] || "";
+              const categoryName = values[columnIndices.category] || "";
+
+              // Map CSV columns to product fields using dynamic indices
               const product = {
-                itemCode: values[0] || "",
-                productName: values[1] || "",
-                productDescription: values[2] || "",
-                unitMeasure: values[3] || "",
-                costPrice: parseFloat(values[4]) || 0,
-                sellingPrice: parseFloat(values[5]) || 0,
-                stock: parseInt(values[6]) || 0,
-                locationId: values[7] || "", // Location name - needs to be converted to ID
-                categoryId: values[8] || "", // Category name - needs to be converted to ID
+                itemCode: values[columnIndices.itemCode] || "",
+                productName: values[columnIndices.productName] || "",
+                productDescription: values[columnIndices.productDescription] || "",
+                unitMeasure: values[columnIndices.unitMeasure] || "pcs",
+                costPrice: parseFloat(values[columnIndices.costPrice]) || 0,
+                sellingPrice: parseFloat(values[columnIndices.sellingPrice]) || 0,
+                stock: parseInt(values[columnIndices.stock]) || 0,
+                locationId: locationMap.get(locationName) || "",
+                categoryId: categoryMap.get(categoryName) || "",
               };
 
-              // Find location ID by name
-              const location = locations.find((l) => l.locationName === product.locationId);
-              if (location) {
-                product.locationId = location._id;
-              } else {
-                console.warn(`Location not found: ${product.locationId}`);
+              // Debug log for first few rows
+              if (i <= 3) {
+                console.log(`Row ${i + 1} parsed:`, {
+                  itemCode: product.itemCode,
+                  productName: product.productName,
+                  location: locationName,
+                  category: categoryName,
+                  stock: product.stock
+                });
+              }
+
+              // Skip if required fields are missing
+              if (!product.itemCode || !product.productName) {
+                console.warn(`⚠️ Skipping row ${i + 1}: Missing item code or product name`);
                 continue;
               }
 
-              // Find category ID by name
-              const category = categories.find((c) => c.categoryName === product.categoryId);
-              if (category) {
-                product.categoryId = category._id;
-              } else {
-                console.warn(`Category not found: ${product.categoryId}`);
+              // Skip if location or category ID couldn't be resolved
+              if (!product.locationId) {
+                console.warn(`⚠️ Skipping row ${i + 1}: Location ID not found for: "${locationName}"`);
+                continue;
+              }
+
+              if (!product.categoryId) {
+                console.warn(`⚠️ Skipping row ${i + 1}: Category ID not found for: "${categoryName}"`);
                 continue;
               }
 
@@ -149,16 +294,44 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
             }
 
             // Import products
+            console.log(`📦 Importing ${products.length} product(s)...`);
+            let successCount = 0;
+            let failCount = 0;
+
             await apiRequest(async () => {
-              await Promise.all(
-                products.map((product) =>
-                  axios.post(`${API_BASE_URL}/api/product`, product, authHeaders())
-                )
+              await Promise.allSettled(
+                products.map(async (product) => {
+                  try {
+                    const res = await axios.post(`${API_BASE_URL}/api/product/add`, product, authHeaders());
+                    successCount++;
+                    console.log(`✅ Created product: ${product.productName} (${product.itemCode})`);
+                    return res;
+                  } catch (err) {
+                    failCount++;
+                    console.error(`❌ Failed to create product: ${product.productName} (${product.itemCode})`, err.response?.data || err.message);
+                    throw err;
+                  }
+                })
               );
+
+              console.log(`📊 Import complete: ${successCount} succeeded, ${failCount} failed`);
               await fetchAll();
             });
 
-            alert(`Successfully imported ${products.length} product(s)`);
+            // Show summary
+            const summary = [];
+            if (newLocations.size > 0) summary.push(`${newLocations.size} location(s)`);
+            if (newCategories.size > 0) summary.push(`${newCategories.size} category(ies)`);
+
+            let message = `Import complete!\n\n✅ ${successCount} product(s) created successfully`;
+            if (failCount > 0) {
+              message += `\n❌ ${failCount} product(s) failed (check console for details)`;
+            }
+            if (summary.length > 0) {
+              message += `\n\n🆕 Auto-created: ${summary.join(", ")}`;
+            }
+
+            alert(message);
             setShowImport(false);
             setImportFile(null);
           } catch (error) {
@@ -183,24 +356,38 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
     const getPendingAdjustment = (product, locationId) => {
         if (!product || !locationId) return 0;
         const pid = String(product._id);
+        const itemCode = product.itemCode || "";
         let pending = 0;
-    
+
         transactions.forEach((tx) => {
           const items = getTxItems(tx);
           if (!items.length) return;
           const { from, to, single } = getTxLocationIds(tx);
-    
+          const tType = (tx.type || "").toLowerCase();
+
           items.forEach((item) => {
             const itemProdId =
               (typeof item.product === "object" ? item.product?._id : item.product) ||
               (typeof item.productId === "object" ? item.productId?._id : item.productId) ||
               item.product_id;
-    
-            if (!itemProdId || String(itemProdId) !== pid) return;
-    
+
+            const itemProductCode =
+              (item.product && typeof item.product === "object" ? item.product.itemCode : null) ||
+              (item.productId && typeof item.productId === "object" ? item.productId.itemCode : null) ||
+              null;
+
+            // ✅ For transfer transactions, match by itemCode instead of product ID
+            let isMatch = false;
+            if (tType === "transfer" && itemCode && itemProductCode) {
+              isMatch = String(itemProductCode) === String(itemCode);
+            } else {
+              isMatch = itemProdId && String(itemProdId) === pid;
+            }
+
+            if (!isMatch) return;
+
             const qty = Number(item.quantity || item.qty || item.amount || 0);
-            const tType = (tx.type || "").toLowerCase();
-    
+
             if (["sale", "sales", "outbound"].includes(tType)) {
               const loc = single || from;
               if (loc && String(loc) === String(locationId)) pending -= qty;
@@ -349,8 +536,8 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
       };
 
       const handleExport = (selectedRows) => {
-        // Convert to CSV
-        const headers = ["Item Code", "Name", "Description", "Unit", "Cost Price", "Selling Price", "Stock", "Location", "Category"];
+        // Convert to CSV with clear headers
+        const headers = ["itemCode", "productName", "productDescription", "unitMeasure", "costPrice", "sellingPrice", "stock", "location", "category"];
         const csvData = selectedRows.map((row) => [
           row.itemCode || "",
           row.productName || "",
@@ -381,10 +568,11 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
       };
 
       const downloadTemplate = () => {
-        const headers = ["Item Code", "Name", "Description", "Unit", "Cost Price", "Selling Price", "Stock", "Location", "Category"];
+        const headers = ["itemCode", "productName", "productDescription", "unitMeasure", "costPrice", "sellingPrice", "stock", "location", "category"];
         const sampleData = [
-          ["PROD001", "Sample Product", "Sample description", "pcs", "100.00", "150.00", "10", "Main Warehouse", "Electronics"],
-          ["PROD002", "Another Product", "Another description", "box", "50.00", "75.00", "20", "Branch 1", "Office Supplies"],
+          ["A001", "Apple (Red Delicious)", "Fresh red apples, crisp and sweet", "pcs", "1.50", "2.00", "100", "Manila Branch", "Fruits"],
+          ["A002", "Banana", "Fresh yellow bananas, perfect for snacking", "pcs", "0.20", "0.30", "150", "Manila Branch", "Fruits"],
+          ["A003", "Milk (Whole)", "Full-fat milk, 1 liter", "liter", "1.00", "1.50", "200", "Cebu Branch", "Dairy"],
         ];
 
         const csvContent = [
@@ -552,9 +740,12 @@ const ProductTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
                 <p className="text-sm text-gray-600 mb-2">
                   Upload a CSV file with the following columns:
                 </p>
-                <div className="bg-gray-50 p-3 rounded text-xs font-mono mb-2">
-                  Item Code, Name, Description, Unit, Cost Price, Selling Price, Stock, Location, Category
+                <div className="bg-gray-50 p-3 rounded text-xs font-mono mb-2 overflow-x-auto">
+                  itemCode, productName, productDescription, unitMeasure, costPrice, sellingPrice, stock, location, category
                 </div>
+                <p className="text-xs text-gray-500 mb-2">
+                  ✅ Locations and categories will be auto-created if they don't exist
+                </p>
                 <button
                   onClick={downloadTemplate}
                   className="text-sm text-blue-600 hover:text-blue-700 underline"

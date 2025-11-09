@@ -59,23 +59,19 @@ const transactionSchema = new mongoose.Schema({
 
 transactionSchema.pre("save", async function (next) {
     try {
-      // 🧩 If inbound linked to a purchase, reuse that PO number
-      if (this.type === "inbound" && this.linkedTransaction) {
-        const linked = await mongoose
-          .model("Transaction")
-          .findById(this.linkedTransaction);
-        if (linked?.poNumber) {
-          this.poNumber = linked.poNumber;
-          return next();
-        }
+      // 🧩 Inbound transactions should NOT have a poNumber (to avoid duplicate key error)
+      // The linkedTransaction field connects them to the purchase order
+      if (this.type === "inbound") {
+        this.poNumber = undefined;
+        return next();
       }
-  
+
       // 🧩 Only auto-generate PO number for PURCHASE transactions
       if (this.type !== "purchase") {
         this.poNumber = undefined;
         return next();
       }
-  
+
       // Skip if already assigned manually
       if (this.poNumber) return next();
   

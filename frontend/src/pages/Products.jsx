@@ -78,6 +78,7 @@ function Products() {
   const getPendingAdjustment = (product, locationId) => {
     if (!product || !locationId) return 0;
     const pid = String(product._id || "");
+    const itemCode = product.itemCode || "";
     let pending = 0;
 
     transactions.forEach((tx) => {
@@ -85,6 +86,8 @@ function Products() {
       if (!items.length) return;
 
       const { from, to, single } = getTxLocationIds(tx);
+      const tType = (tx.type || "").toLowerCase();
+
       items.forEach((item) => {
         const itemProdId =
           (item.product && (typeof item.product === "object" ? item.product._id : item.product)) ||
@@ -92,10 +95,22 @@ function Products() {
           item.product_id ||
           null;
 
-        if (!itemProdId || String(itemProdId) !== pid) return;
+        const itemProductCode =
+          (item.product && typeof item.product === "object" ? item.product.itemCode : null) ||
+          (item.productId && typeof item.productId === "object" ? item.productId.itemCode : null) ||
+          null;
+
+        // ✅ For transfer transactions, match by itemCode instead of product ID
+        let isMatch = false;
+        if (tType === "transfer" && itemCode && itemProductCode) {
+          isMatch = String(itemProductCode) === String(itemCode);
+        } else {
+          isMatch = itemProdId && String(itemProdId) === pid;
+        }
+
+        if (!isMatch) return;
 
         const qty = Number(item.quantity || item.qty || 0);
-        const tType = (tx.type || "").toLowerCase();
 
         if (["sale", "sales", "outbound"].includes(tType)) {
           const locToCheck = single || from;

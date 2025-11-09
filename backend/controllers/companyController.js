@@ -9,6 +9,7 @@ const createCompany = async (req, res) => {
       companyContactName,
       companyContactNumber,
       companyOfficeNumber,
+      terms,
     } = req.body;
 
     // Check if company already exists by name or email
@@ -29,6 +30,7 @@ const createCompany = async (req, res) => {
       companyContactName,
       companyContactNumber,
       companyOfficeNumber,
+      terms,
     });
 
     await newCompany.save();
@@ -65,6 +67,7 @@ const updateCompany = async (req, res) => {
       companyContactName,
       companyContactNumber,
       companyOfficeNumber,
+      terms,
     } = req.body;
 
     const updated = await CompanyModel.findByIdAndUpdate(
@@ -76,6 +79,7 @@ const updateCompany = async (req, res) => {
         companyContactName,
         companyContactNumber,
         companyOfficeNumber,
+        terms,
       },
       { new: true, runValidators: true }
     );

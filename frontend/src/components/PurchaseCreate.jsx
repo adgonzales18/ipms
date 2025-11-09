@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { FaPlus, FaTrash, FaSearch } from "react-icons/fa";
 import PopoutForm from "./PopoutForm";
+import Alert from "./Alert";
+import authHeaders from "../utils/authHeaders";
 
 const PurchaseCreate = ({ onSuccess }) => {
   const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
-  const authHeaders = () => ({
-    headers: { Authorization: `Bearer ${sessionStorage.getItem("pos-token")}` },
-  });
+  
+
+  const [alert, setAlert] = useState(null);
 
 
 
@@ -138,9 +140,9 @@ const PurchaseCreate = ({ onSuccess }) => {
     try {
       const res = await axios.post(`${API_BASE_URL}/api/company/add`, formData, authHeaders())
       const companyData = res.data?.data || res.data?.company || res.data;
-  
+
       if (res.data?.success || res.status === 201) {
-       alert("✅ Company added successfully!");
+       setAlert({ type: "success", message: "✅ Company added successfully!" });
        setIsAddingCompany(false);
 
        // refresh list with proper headers
@@ -150,19 +152,25 @@ const PurchaseCreate = ({ onSuccess }) => {
        return; // ✅ stop here to avoid falling through
      }
 
-     alert(res.data?.message || "Failed to add company");
+     setAlert({ type: "error", message: res.data?.message || "Failed to add company" });
     } catch (err) {
       console.error("Error adding company:", err);
-      alert("Error adding company");
+      setAlert({ type: "error", message: "Error adding company" });
     }
   };
 
   // ✅ Submit handler with draft option
   const handleSubmit = async (e, isDraft = false) => {
     e.preventDefault();
-    if (!selectedCompany) return alert("Please select a company");
-    if (!toLocation) return alert("Please select an inbound location");
-    
+    if (!selectedCompany) {
+      setAlert({ type: "error", message: "Please select a company" });
+      return;
+    }
+    if (!toLocation) {
+      setAlert({ type: "error", message: "Please select an inbound location" });
+      return;
+    }
+
     const payload = {
       type: "purchase",
       products: products
@@ -188,7 +196,10 @@ const PurchaseCreate = ({ onSuccess }) => {
         authHeaders()
       );
       if (!res.data.success) throw new Error("Failed to create purchase");
-      alert(isDraft ? "✅ Purchase order saved as draft!" : "✅ Purchase order created successfully!");
+      setAlert({
+        type: "success",
+        message: isDraft ? "✅ Purchase order saved as draft!" : "✅ Purchase order created successfully!"
+      });
 
       // Call onSuccess callback if provided
       if (onSuccess) {
@@ -196,7 +207,7 @@ const PurchaseCreate = ({ onSuccess }) => {
       }
     } catch (err) {
       console.error(err);
-      alert("Error creating purchase");
+      setAlert({ type: "error", message: "Error creating purchase" });
     } finally {
       setLoading(false);
     }
@@ -538,6 +549,15 @@ const PurchaseCreate = ({ onSuccess }) => {
             { name: "companyOfficeNumber", label: "Office Number", type: "text" },
             { name: "terms", label: "Payment Terms" },
           ]}
+        />
+      )}
+
+      {/* Alert */}
+      {alert && (
+        <Alert
+          type={alert.type}
+          message={alert.message}
+          onClose={() => setAlert(null)}
         />
       )}
     </>

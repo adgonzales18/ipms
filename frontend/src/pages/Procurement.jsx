@@ -5,11 +5,13 @@ import DataTable from "../components/DataTable";
 import TransactionDetails from "../components/TransactionDetails";
 import { motion } from "framer-motion";
 import authHeaders from "../utils/authHeaders";
+import Alert from "../components/Alert";
 
 const Purchase = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [purchases, setPurchases] = useState([]);
   const [selectedPurchase, setSelectedPurchase] = useState(null);
+  const [alert, setAlert] = useState(null);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
@@ -30,6 +32,58 @@ const Purchase = () => {
     fetchPurchases();
   }, []);
 
+  // Handle approval/rejection/cancellation
+  const handleApproval = async (id, action) => {
+    // Map action to endpoint
+    let endpoint;
+    if (action === "approve") endpoint = "approve";
+    else if (action === "reject") endpoint = "reject";
+    else if (action === "cancel") endpoint = "cancel";
+    else if (action === "move-to-draft") endpoint = "move-to-draft";
+    else if (action === "resubmit") endpoint = "resubmit";
+    else if (action === "submit") endpoint = "submit";
+    else {
+      console.error("Unknown action:", action);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/transaction/${id}/${endpoint}`, {
+        method: "PUT",
+        ...authHeaders(),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
+        console.error("Transaction action error:", errorData);
+        setAlert({ type: "error", message: errorData.message || `Failed to ${action} transaction` });
+        throw new Error(errorData.message || `Failed to ${action}`);
+      }
+
+      const data = await res.json();
+      console.log(`✅ Transaction ${action}d:`, data);
+
+      // Success message based on action
+      let successMsg;
+      if (action === "approve") successMsg = "Transaction approved successfully!";
+      else if (action === "reject") successMsg = "Transaction rejected successfully!";
+      else if (action === "cancel") successMsg = "Purchase order cancelled successfully!";
+      else if (action === "move-to-draft") successMsg = "Transaction moved to draft successfully!";
+      else if (action === "resubmit") successMsg = "Transaction resubmitted successfully!";
+      else if (action === "submit") successMsg = "Draft submitted for approval successfully!";
+
+      setAlert({ type: "success", message: successMsg });
+      fetchPurchases();
+      setSelectedPurchase(null);
+    } catch (err) {
+      console.error("Error handling transaction action:", err);
+      if (!alert) {
+        setAlert({ type: "error", message: err.message || `Failed to ${action} transaction` });
+      }
+      throw err;
+    }
+  };
+
   // Define columns for DataTable
   const columns = [
     {
@@ -41,16 +95,6 @@ const Purchase = () => {
       key: "company",
       label: "Company",
       render: (row) => row.company?.companyName || "-",
-    },
-    {
-      key: "products",
-      label: "Products",
-      render: (row) => row.products.map((p) => p.product?.productName).join(", "),
-    },
-    {
-      key: "quantities",
-      label: "Quantities",
-      render: (row) => row.products.map((p) => p.quantity).join(", "),
     },
     {
       key: "status",
@@ -68,10 +112,25 @@ const Purchase = () => {
       render: (row) => row.deliveryDate ? new Date(row.deliveryDate).toLocaleDateString() : "-",
     },
     {
-      key: "createdAt",
-      label: "Created",
-      render: (row) => new Date(row.createdAt).toLocaleDateString(),
+    key: "requestedBy", 
+    label: "Requested By",
+    render: (row) => row.requestedBy?.name || "-",
     },
+    {
+    key: "createdAt",
+    label: "Created Date",
+    render: (row) => new Date(row.createdAt).toLocaleDateString(),
+    },
+    {
+    key: "approvedBy",
+    label: "Approved By",
+    render: (row) => row.approvedBy?.name || "-",
+    },
+    {
+        key: "approvedAt",
+        label: "Approval Date",
+        render: (row) => row.approvedAt ? new Date(row.approvedAt).toLocaleDateString() : "-",
+},
   ];
 
   return (
@@ -82,6 +141,7 @@ const Purchase = () => {
       exit={{ opacity: 0, y: -10 }}
       transition={{ duration: 0.3, ease: "easeInOut" }}
     >
+      {alert && <Alert type={alert.type} message={alert.message} onClose={() => setAlert(null)} />}
       <DataTable
         data={purchases}
         columns={columns}
@@ -120,7 +180,7 @@ const Purchase = () => {
             setSelectedPurchase(null);
             fetchPurchases();
           }}
-          onAction={() => {}}
+          onAction={handleApproval}
           onUpdateInbound={() => {}}
           onUpdatePurchase={() => {}}
         />

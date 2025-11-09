@@ -3,20 +3,20 @@ import bcrypt from 'bcrypt';
 
 const getUsers = async (req, res) => {
     try {
-        
+
         // Only allow admin to fetch all user information
         if (req.user.role !== 'admin') {
             return res.status(403).json({ success: false, message: 'Not authorized' });
         }
 
         const users = await User.find()
-        .populate("locationId, locationName")
+        .populate("locationId")
         .select("-password");
-        
+
         res.status(200).json({success: true, data: users});
     }
     catch (error) {
-        console.error(error);
+        console.error("Error fetching users:", error);
         res.status(500).json({success: false, message: "Internal server error"});
     }
 };
@@ -24,14 +24,14 @@ const getUsers = async (req, res) => {
 const getUserbyId= async (req, res) => {
     try {
         const {id} = req.params;
-    
+
         // Only allow admin or same user to access user information
         if (req.user.id !== id && req.user.role !== "admin") {
             return res.status(403).json({success: false, message: "Not authorized"});
-        } 
+        }
 
         const user = await User.findById(id)
-        .populate("locationId, locationName")
+        .populate("locationId")
         .select("-password");
 
        if (!user)
@@ -39,7 +39,7 @@ const getUserbyId= async (req, res) => {
 
         res.status(200).json({success: true, data: user});
     } catch (error) {
-        console.error(error);
+        console.error("Error fetching user by ID:", error);
         res.status(500).json({success: false, message: "Internal server error"});
     }
 };
@@ -57,7 +57,7 @@ const createUser = async (req, res) => {
             return res.status(400).json({success: false, message: "User already exists"});
         }
 
-        const hashedPassword = await brcypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 10);
 
         const newUser = new User({
             name,

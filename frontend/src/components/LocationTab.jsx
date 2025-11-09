@@ -44,7 +44,7 @@ const LocationTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
   const handleAddLocation = async (data) => {
     setLoading(true);
     await apiRequest(async () => {
-      await axios.post(`${API_BASE_URL}/api/location`, data, authHeaders());
+      await axios.post(`${API_BASE_URL}/api/location/add`, data, authHeaders());
       await fetchLocations();
     });
     setShowAdd(false);
@@ -103,7 +103,7 @@ const LocationTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
         await apiRequest(async () => {
           await Promise.all(
             locationsData.map((location) =>
-              axios.post(`${API_BASE_URL}/api/location`, location, authHeaders())
+              axios.post(`${API_BASE_URL}/api/location/add`, location, authHeaders())
             )
           );
           await fetchLocations();

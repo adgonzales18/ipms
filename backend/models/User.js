@@ -6,8 +6,8 @@ const userSchema = new mongoose.Schema({
     name: {type: String, required: true},
     email: {type: String, required: true, unique: true},
     password: {type: String, required: true},
-    address: {type: String, required: true},
-    role: {type: String, enum: ["admin", "user"], default: "user"},
+    address: {type: String, default: ""},
+    role: {type: String, enum: ["admin", "viewer"], default: "viewer"},
     locationId: {type: mongoose.Schema.Types.ObjectId, ref: "Location"},
     image: { type: String, trim: true, default: "", validator: function (v)  {
         // Allow empty or valid URL (starting with http:// or https://)

@@ -2,12 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import { FaEdit, FaTrash, FaSearch, FaPlus } from "react-icons/fa";
 import axios from "axios";
 import PopoutForm from "./PopoutForm";
+import Alert from "./Alert";
 
 const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionCreated }) =>  {
   const [type, setType] = useState("sale");
   const [products, setProducts] = useState([
     { code: "", details: null, quantity: 1, locked: false, customPrice: "" },
   ]);
+  const [alert, setAlert] = useState(null);
   const [locations, setLocations] = useState([]);
   const [fromLocation, setFromLocation] = useState("");
   const [toLocation, setToLocation] = useState("");
@@ -21,8 +23,9 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeRowIndex, setActiveRowIndex] = useState(null);
+  const [transactions, setTransactions] = useState([]);
 
-  const user = JSON.parse(sessionStorage.getItem("pos-user"));
+  const user = JSON.parse(sessionStorage.getItem("user"));
   const userLocationId = user?.locationId?._id || user?.locationId;
 
   const formatPrice = (num) =>
@@ -92,28 +95,130 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
     fetchCompanies();
   }, [API_BASE_URL]);
 
-  // Fetch products
+  // Fetch products and transactions
   useEffect(() => {
-    const fetchProducts = async () => {
+    const fetchData = async () => {
       try {
-        const res = await apiRequest(() =>
-          fetch(`${API_BASE_URL}/api/product`, authHeaders()).then(
-            (r) => r.json()
-          )
-        );
-        setAllProducts(res?.data || res?.products || res || []);
+        const [prodRes, txRes] = await Promise.all([
+          apiRequest(() =>
+            fetch(`${API_BASE_URL}/api/product`, authHeaders()).then((r) => r.json())
+          ),
+          apiRequest(() =>
+            fetch(`${API_BASE_URL}/api/transaction?status=pending`, authHeaders()).then((r) => r.json())
+          ),
+        ]);
+
+        setAllProducts(prodRes?.data || prodRes?.products || prodRes || []);
+
+        const txData = Array.isArray(txRes?.data)
+          ? txRes.data
+          : Array.isArray(txRes)
+          ? txRes
+          : [];
+        setTransactions(txData);
       } catch (err) {
-        console.error("Error fetching products:", err);
+        console.error("Error fetching data:", err);
       }
     };
-    fetchProducts();
+    fetchData();
   }, [API_BASE_URL, apiRequest]);
 
-  const filteredProducts = allProducts.filter(
-    (p) =>
+  // Helper functions for pending stock calculation
+  const getTxItems = (tx) => tx.products || tx.items || tx.lineItems || [];
+
+  const getTxLocationIds = (tx) => {
+    const from =
+      tx.fromLocation?._id ||
+      tx.fromLocationId?._id ||
+      tx.fromLocationId ||
+      (typeof tx.fromLocation === "string" ? tx.fromLocation : undefined);
+    const to =
+      tx.toLocation?._id ||
+      tx.toLocationId?._id ||
+      tx.toLocationId ||
+      (typeof tx.toLocation === "string" ? tx.toLocation : undefined);
+    const single =
+      tx.locationId?._id || tx.locationId || tx.location?._id || tx.location;
+    return { from, to, single };
+  };
+
+  const getPendingAdjustment = (product, locationId) => {
+    if (!product || !locationId) return 0;
+    const pid = String(product._id || "");
+    const itemCode = product.itemCode || "";
+    let pending = 0;
+
+    transactions.forEach((tx) => {
+      const items = getTxItems(tx);
+      if (!items.length) return;
+
+      const { from, to, single } = getTxLocationIds(tx);
+      const tType = (tx.type || "").toLowerCase();
+
+      items.forEach((item) => {
+        const itemProdId =
+          (item.product && (typeof item.product === "object" ? item.product._id : item.product)) ||
+          (item.productId && (typeof item.productId === "object" ? item.productId._id : item.productId)) ||
+          item.product_id ||
+          null;
+
+        const itemProductCode =
+          (item.product && typeof item.product === "object" ? item.product.itemCode : null) ||
+          (item.productId && typeof item.productId === "object" ? item.productId.itemCode : null) ||
+          null;
+
+        // ✅ For transfer transactions, match by itemCode instead of product ID
+        let isMatch = false;
+        if (tType === "transfer" && itemCode && itemProductCode) {
+          isMatch = String(itemProductCode) === String(itemCode);
+        } else {
+          isMatch = itemProdId && String(itemProdId) === pid;
+        }
+
+        if (!isMatch) return;
+
+        const qty = Number(item.quantity || item.qty || 0);
+
+        if (["sale", "sales", "outbound"].includes(tType)) {
+          const locToCheck = single || from;
+          if (locToCheck && String(locToCheck) === String(locationId)) pending -= qty;
+        } else if (["inbound"].includes(tType)) {
+          const locToCheck = single || to;
+          if (locToCheck && String(locToCheck) === String(locationId)) pending += qty;
+        } else if (tType === "transfer") {
+          if (from && String(from) === String(locationId)) pending -= qty;
+          if (to && String(to) === String(locationId)) pending += qty;
+        }
+      });
+    });
+    return pending;
+  };
+
+  const getAvailableStock = (product, locationId) =>
+    Number(product.stock || 0) + getPendingAdjustment(product, locationId);
+
+  const filteredProducts = allProducts.filter((p) => {
+    // Filter by search query
+    const matchesSearch =
       p.itemCode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.productName?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+      p.productName?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    // ✅ For sale/outbound/transfer, filter by fromLocation if selected
+    if (["sale", "outbound", "transfer"].includes(type) && fromLocation) {
+      const productLocationId = p.locationId?._id || p.locationId;
+      return String(productLocationId) === String(fromLocation);
+    }
+
+    // ✅ For inbound, filter by toLocation if selected
+    if (type === "inbound" && toLocation) {
+      const productLocationId = p.locationId?._id || p.locationId;
+      return String(productLocationId) === String(toLocation);
+    }
+
+    return true;
+  });
 
   const selectProduct = (product, index) => {
     const newProducts = [...products];
@@ -148,9 +253,26 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
   const handleManualCode = (i, val) => {
     const newProducts = [...products];
     newProducts[i].code = val;
-    const match = allProducts.find(
-      (p) => p.itemCode?.toLowerCase() === val.toLowerCase()
-    );
+
+    // ✅ Find product matching code AND location
+    let match = allProducts.find((p) => {
+      if (p.itemCode?.toLowerCase() !== val.toLowerCase()) return false;
+
+      // For sale/outbound/transfer, match fromLocation
+      if (["sale", "outbound", "transfer"].includes(type) && fromLocation) {
+        const productLocationId = p.locationId?._id || p.locationId;
+        return String(productLocationId) === String(fromLocation);
+      }
+
+      // For inbound, match toLocation
+      if (type === "inbound" && toLocation) {
+        const productLocationId = p.locationId?._id || p.locationId;
+        return String(productLocationId) === String(toLocation);
+      }
+
+      return true;
+    });
+
     if (match) {
       newProducts[i] = {
         code: match.itemCode,
@@ -191,7 +313,7 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
       const res = await axios.post(`${API_BASE_URL}/api/company/add`, formData, authHeaders())
 
       if (res.data?.success || res.status === 201) {
-        alert("✅ Company added successfully!");
+        setAlert({ type: "success", message: "✅ Company added successfully!" });
         setIsAddingCompany(false);
 
         // refresh list
@@ -199,26 +321,26 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
         setCompanies(updated.data.data || []);
         setCompany(res.data.data?._id || "");
       } else {
-        alert(res.data?.message || "Failed to add company");
+        setAlert({ type: "error", message: res.data?.message || "Failed to add company" });
       }
     } catch (err) {
       console.error("Error adding company:", err);
-      alert("Error adding company");
+      setAlert({ type: "error", message: err.response?.data?.message || "Error adding company" });
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (type === "sale" && !company) {
-      alert("Please select a company before submitting.");
+      setAlert({ type: "error", message: "Please select a company before submitting." });
       return;
     }
     if (["sale", "outbound", "transfer"].includes(type) && !fromLocation) {
-      alert("Please select a from location.");
+      setAlert({ type: "error", message: "Please select a from location." });
       return;
     }
     if (["inbound", "transfer"].includes(type) && !toLocation) {
-      alert("Please select a to location.");
+      setAlert({ type: "error", message: "Please select a to location." });
       return;
     }
 
@@ -254,7 +376,7 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
         }).then((r) => r.json())
       );
       if (res?.success) {
-        alert("✅ Transaction created!");
+        setAlert({ type: "success", message: "✅ Transaction created!" });
         setProducts([
           { code: "", details: null, quantity: 1, locked: false, customPrice: "" },
         ]);
@@ -263,11 +385,11 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
         setCompany("");
         onTransactionCreated?.();
       } else {
-        alert(res?.message || "Failed to create transaction");
+        setAlert({ type: "error", message: res?.message || "Failed to create transaction" });
       }
     } catch (err) {
       console.error("Error submitting transaction:", err);
-      alert("Error submitting transaction");
+      setAlert({ type: "error", message: "Error submitting transaction" });
     }
   };
 
@@ -549,32 +671,53 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
                   <th className="px-6 py-3">Name</th>
                   <th className="px-6 py-3">Unit</th>
                   <th className="px-6 py-3">Price</th>
-                  <th className="px-6 py-3">Stock</th>
+                  {type === "sale" && (
+                    <>
+                      <th className="px-6 py-3">On Hand</th>
+                      <th className="px-6 py-3">Pending</th>
+                      <th className="px-6 py-3">Available</th>
+                    </>
+                  )}
+                  {type !== "sale" && <th className="px-6 py-3">Stock</th>}
                   <th className="px-6 py-3 text-right">Select</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredProducts.map((p) => (
-                  <tr
-                    key={p._id}
-                    className="bg-white border-b hover:bg-gray-50 text-gray-700"
-                  >
-                    <td className="px-6 py-4">{p.itemCode}</td>
-                    <td className="px-6 py-4">{p.productName}</td>
-                    <td className="px-6 py-4">{p.unitMeasure}
-                    </td>
-                    <td className="px-6 py-4">₱{formatPrice(p.sellingPrice)}</td>
-                    <td className="px-6 py-4">{p.stock ?? "-"}</td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => selectProduct(p, activeRowIndex)}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-                      >
-                        Select
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {filteredProducts.map((p) => {
+                  const locId = p.locationId?._id || p.locationId;
+                  const pending = getPendingAdjustment(p, locId);
+                  const available = getAvailableStock(p, locId);
+
+                  return (
+                    <tr
+                      key={p._id}
+                      className="bg-white border-b hover:bg-gray-50 text-gray-700"
+                    >
+                      <td className="px-6 py-4">{p.itemCode}</td>
+                      <td className="px-6 py-4">{p.productName}</td>
+                      <td className="px-6 py-4">{p.unitMeasure}</td>
+                      <td className="px-6 py-4">₱{formatPrice(p.sellingPrice)}</td>
+                      {type === "sale" && (
+                        <>
+                          <td className="px-6 py-4">{p.stock ?? 0}</td>
+                          <td className="px-6 py-4">
+                            {pending >= 0 ? `+${pending}` : pending}
+                          </td>
+                          <td className="px-6 py-4 font-semibold">{available}</td>
+                        </>
+                      )}
+                      {type !== "sale" && <td className="px-6 py-4">{p.stock ?? "-"}</td>}
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => selectProduct(p, activeRowIndex)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                        >
+                          Select
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -595,6 +738,15 @@ const TransactionForm = ({ API_BASE_URL, authHeaders, apiRequest, onTransactionC
             { name: "companyOfficeNumber", label: "Office Number", type: "text" },
             { name: "terms", label: "Payment Terms" },
           ]}
+        />
+      )}
+
+      {/* Alert */}
+      {alert && (
+        <Alert
+          type={alert.type}
+          message={alert.message}
+          onClose={() => setAlert(null)}
         />
       )}
     </div>

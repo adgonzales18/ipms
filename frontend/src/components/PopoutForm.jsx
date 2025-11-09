@@ -49,10 +49,10 @@ export default function PopoutForm({ title, fields = [], isOpen, onClose, onSubm
 
   return (
     <div className="fixed inset-0 backdrop-blur-sm backdrop-brightness-75 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col my-auto">
+      <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col my-auto">
         {/* Fixed Header */}
         <div className="p-6 pb-4 border-b sticky top-0 bg-white rounded-t-2xl">
-          <button className="absolute top-3 right-3 text-gray-600 hover:text-gray-900" onClick={onClose}><FaTimes /></button>
+          <button type="button" className="absolute top-3 right-3 text-gray-600 hover:text-gray-900" onClick={onClose}><FaTimes /></button>
           <h2 className="text-xl font-bold">{title}</h2>
         </div>
 
@@ -75,7 +75,7 @@ export default function PopoutForm({ title, fields = [], isOpen, onClose, onSubm
               </div>
             </>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="space-y-3">
               {fields.map((field) => (
                 <div key={field.name}>
                   <label className="block text-sm font-medium mb-1">{field.label}</label>
@@ -91,7 +91,7 @@ export default function PopoutForm({ title, fields = [], isOpen, onClose, onSubm
                   )}
                 </div>
               ))}
-            </form>
+            </div>
           )}
         </div>
 
@@ -104,13 +104,13 @@ export default function PopoutForm({ title, fields = [], isOpen, onClose, onSubm
                 {loading ? "Importing..." : "Import"}
               </button>
             ) : (
-              <button type="submit" onClick={handleSubmit} disabled={loading} className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-blue-900 transition-colors disabled:opacity-50">
+              <button type="submit" disabled={loading} className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-blue-900 transition-colors disabled:opacity-50">
                 {loading ? "Saving..." : "Save"}
               </button>
             )}
           </div>
         </div>
-      </div>
+      </form>
     </div>
   );
 }

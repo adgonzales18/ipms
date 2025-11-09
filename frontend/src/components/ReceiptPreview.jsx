@@ -189,7 +189,7 @@ export default function ReceiptPreview({ transaction, onClose }) {
         <div ref={printRef} className="p-6">
           <header className="text-center mb-6">
             <h1 className="text-2xl font-bold tracking-tight text-gray-900">
-              AVES Consumer Goods and Trading
+              Agile DevGrit, Inc.
             </h1>
           </header>
 

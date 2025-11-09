@@ -305,8 +305,9 @@ const CompanyTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
             { name: "companyAddress", label: "Address" },
             { name: "companyEmail", label: "Email", type: "email", required: true },
             { name: "companyContactName", label: "Contact Person" },
-            { name: "companyContactNumber", label: "Contact Number", type: "number" },
-            { name: "companyOfficeNumber", label: "Office Number", type: "number" },
+            { name: "companyContactNumber", label: "Contact Number", type: "text" },
+            { name: "companyOfficeNumber", label: "Office Number", type: "text" },
+            { name: "terms", label: "Payment Terms" },
           ]}
         />
       )}
@@ -326,8 +327,9 @@ const CompanyTab = ({ API_BASE_URL, authHeaders, apiRequest }) => {
             { name: "companyAddress", label: "Address" },
             { name: "companyEmail", label: "Email", type: "email", required: true },
             { name: "companyContactName", label: "Contact Person" },
-            { name: "companyContactNumber", label: "Contact Number", type: "number" },
-            { name: "companyOfficeNumber", label: "Office Number", type: "number" },
+            { name: "companyContactNumber", label: "Contact Number", type: "text" },
+            { name: "companyOfficeNumber", label: "Office Number", type: "text" },
+            { name: "terms", label: "Payment Terms" },
           ]}
         />
       )}

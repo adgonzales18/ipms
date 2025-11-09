@@ -108,6 +108,42 @@ const createTransaction = async (req, res) => {
         // ✅ Validate status if provided
         const transactionStatus = status && ["draft", "pending"].includes(status) ? status : "pending";
 
+        // ✅ For transfer transactions, auto-create product instances in target location
+        if (type === "transfer" && toLocation) {
+          console.log("🔵 Checking/creating product instances in target location for transfer...");
+
+          for (const p of productsWithDetails) {
+            const sourceProduct = await ProductModel.findById(p.product);
+            if (!sourceProduct) {
+              console.log(`⚠️ Source product ${p.product} not found, skipping...`);
+              continue;
+            }
+
+            // Check if product exists in target location
+            const targetProduct = await ProductModel.findOne({
+              itemCode: sourceProduct.itemCode,
+              locationId: toLocation._id,
+            });
+
+            if (!targetProduct) {
+              // Product doesn't exist in target location, create new instance with stock = 0
+              console.log(`✅ Creating product instance: ${sourceProduct.productName} in target location`);
+              await ProductModel.create({
+                productName: sourceProduct.productName,
+                productDescription: sourceProduct.productDescription,
+                costPrice: sourceProduct.costPrice,
+                sellingPrice: sourceProduct.sellingPrice,
+                stock: 0, // ✅ Start with 0 stock, will be updated when transfer is approved
+                categoryId: sourceProduct.categoryId,
+                locationId: toLocation._id,
+                itemCode: sourceProduct.itemCode,
+              });
+            } else {
+              console.log(`✅ Product ${sourceProduct.productName} already exists in target location`);
+            }
+          }
+        }
+
         // ✅ Create transaction record
         const transaction = await TransactionModel.create({
           type,
@@ -121,7 +157,7 @@ const createTransaction = async (req, res) => {
           deliverTo: deliverTo || "",
           deliveryDate: deliveryDate || null,
         });
-    
+
         // 🚫 DO NOT auto-create inbound here (it will be created upon approval)
         res.status(201).json({ success: true, data: transaction });
       } catch (err) {
@@ -311,15 +347,22 @@ const createTransaction = async (req, res) => {
       session.startTransaction();
       try {
         const { id } = req.params;
+        console.log("🔵 Approving transaction:", id);
         const transaction = await TransactionModel.findById(id)
           .populate("products.product")
           .populate("linkedTransaction")
           .session(session);
 
-        if (!transaction)
+        if (!transaction) {
+          console.log("❌ Transaction not found:", id);
           return res.status(404).json({ success: false, message: "Transaction not found" });
-        if (transaction.status !== "pending")
+        }
+        if (transaction.status !== "pending") {
+          console.log("❌ Transaction already processed:", transaction.status);
           return res.status(400).json({ success: false, message: "Transaction already processed" });
+        }
+
+        console.log("✅ Transaction found:", transaction.type, "Status:", transaction.status);
     
         switch (transaction.type) {
           case "sale":
@@ -341,22 +384,69 @@ const createTransaction = async (req, res) => {
             }).session(session);
 
             if (!existingInbound) {
+              console.log("🔵 Creating linked inbound transaction...");
+
+              // ✅ Create product instances in target location if they don't exist
+              console.log("🔵 Checking/creating product instances in target location...");
+              const inboundProducts = []; // Store product mappings for inbound transaction
+
+              for (const p of transaction.products) {
+                const product = await ProductModel.findById(p.product._id).session(session);
+                if (!product) {
+                  console.log(`⚠️ Product ${p.product._id} not found, skipping...`);
+                  continue;
+                }
+
+                // Check if product exists in target location
+                let targetProduct = await ProductModel.findOne({
+                  itemCode: product.itemCode,
+                  locationId: transaction.toLocation,
+                }).session(session);
+
+                if (!targetProduct) {
+                  // Product doesn't exist in target location, create new instance with stock = 0
+                  console.log(`✅ Creating product instance: ${product.productName} in target location`);
+                  const newProducts = await ProductModel.create(
+                    [
+                      {
+                        productName: product.productName,
+                        productDescription: product.productDescription,
+                        costPrice: product.costPrice,
+                        sellingPrice: product.sellingPrice,
+                        stock: 0, // ✅ Start with 0 stock, will be updated when inbound is approved
+                        categoryId: product.categoryId,
+                        locationId: transaction.toLocation,
+                        itemCode: product.itemCode,
+                      },
+                    ],
+                    { session }
+                  );
+                  targetProduct = newProducts[0]; // Get the created product
+                } else {
+                  console.log(`✅ Product ${product.productName} already exists in target location`);
+                }
+
+                // ✅ Store the target product ID for the inbound transaction
+                inboundProducts.push({
+                  product: targetProduct._id, // ✅ Use target location product ID
+                  quantity: p.quantity,
+                  expectedQuantity: p.quantity,
+                  receivedQuantity: 0,
+                  costPriceAtTransaction: p.costPriceAtTransaction,
+                  unitPrice: p.unitPrice,
+                  sellingPrice: p.sellingPrice,
+                  discountPercent: p.discountPercent,
+                  discountedPrice: p.discountedPrice,
+                });
+              }
+
+              // Create the inbound transaction with target location product IDs
               await TransactionModel.create(
                 [
                   {
                     type: "inbound",
                     company: transaction.company,
-                    products: transaction.products.map((p) => ({
-                      product: p.product._id,
-                      quantity: p.quantity,
-                      expectedQuantity: p.quantity,
-                      receivedQuantity: 0,
-                      costPriceAtTransaction: p.costPriceAtTransaction,
-                      unitPrice: p.unitPrice,
-                      sellingPrice: p.sellingPrice,
-                      discountPercent: p.discountPercent,
-                      discountedPrice: p.discountedPrice,
-                    })),
+                    products: inboundProducts, // ✅ Use target location product IDs
                     toLocation: transaction.toLocation,
                     linkedTransaction: transaction._id,
                     requestedBy: transaction.requestedBy,
@@ -367,6 +457,7 @@ const createTransaction = async (req, res) => {
                 ],
                 { session }
               );
+              console.log("✅ Linked inbound transaction created");
             }
             break;
           }
@@ -375,18 +466,44 @@ const createTransaction = async (req, res) => {
             for (const p of transaction.products) {
               const product = await ProductModel.findById(p.product._id).session(session);
               if (!product) continue;
-    
+
               const receivedQty =
                 p.receivedQuantity !== undefined && p.receivedQuantity !== null
                   ? Number(p.receivedQuantity)
                   : Number(p.quantity || 0);
-    
+
               if (receivedQty > 0) {
-                product.stock += receivedQty;
-                await product.save({ session });
+                // Check if product exists in target location
+                let targetProduct = await ProductModel.findOne({
+                  itemCode: product.itemCode,
+                  locationId: transaction.toLocation,
+                }).session(session);
+
+                if (targetProduct) {
+                  // Product exists in target location, add stock
+                  targetProduct.stock += receivedQty;
+                  await targetProduct.save({ session });
+                } else {
+                  // Product doesn't exist in target location, create new instance
+                  await ProductModel.create(
+                    [
+                      {
+                        productName: product.productName,
+                        productDescription: product.productDescription,
+                        costPrice: product.costPrice,
+                        sellingPrice: product.sellingPrice,
+                        stock: receivedQty,
+                        categoryId: product.categoryId,
+                        locationId: transaction.toLocation,
+                        itemCode: product.itemCode,
+                      },
+                    ],
+                    { session }
+                  );
+                }
               }
             }
-    
+
             if (transaction.linkedTransaction) {
               const purchase = await TransactionModel.findById(transaction.linkedTransaction).session(session);
               if (purchase && purchase.status === "pending") {
@@ -441,10 +558,12 @@ const createTransaction = async (req, res) => {
         transaction.approvedBy = req.user._id;
         transaction.approvedAt = new Date();
         await transaction.save({ session });
-    
+
+        console.log("✅ Committing transaction...");
         await session.commitTransaction();
         session.endSession();
-    
+
+        console.log("✅ Transaction approved successfully:", transaction._id);
         res.status(200).json({
           success: true,
           message: `${transaction.type} transaction approved successfully`,
@@ -452,6 +571,7 @@ const createTransaction = async (req, res) => {
         });
       } catch (err) {
         console.error("❌ Approve Transaction Error:", err);
+        console.error("❌ Error stack:", err.stack);
         await session.abortTransaction();
         session.endSession();
         res.status(500).json({ success: false, message: err.message });
@@ -498,33 +618,49 @@ const createTransaction = async (req, res) => {
           return res.status(400).json({ success: false, message: "Only approved transactions can be cancelled" });
 
         // Find and delete the linked inbound transaction
-        if (transaction._id) {
-          const linkedInbound = await TransactionModel.findOne({
-            linkedTransaction: transaction._id,
-            type: "inbound",
-          }).session(session);
+        const linkedInbound = await TransactionModel.findOne({
+          linkedTransaction: transaction._id,
+          type: "inbound",
+        }).session(session);
 
-          if (linkedInbound) {
-            // If the inbound was already approved, we need to reverse the stock
-            if (linkedInbound.status === "approved") {
-              for (const p of linkedInbound.products) {
-                const product = await ProductModel.findById(p.product).session(session);
-                if (product) {
-                  const receivedQty = p.receivedQuantity !== undefined && p.receivedQuantity !== null
-                    ? Number(p.receivedQuantity)
-                    : Number(p.quantity || 0);
+        if (linkedInbound) {
+          console.log(`🔵 Found linked inbound transaction: ${linkedInbound._id}, Status: ${linkedInbound.status}`);
 
-                  if (receivedQty > 0) {
-                    product.stock -= receivedQty; // Reverse the stock addition
-                    await product.save({ session });
+          // If the inbound was already approved, we need to reverse the stock
+          if (linkedInbound.status === "approved") {
+            console.log("🔄 Reversing stock for approved inbound...");
+            for (const p of linkedInbound.products) {
+              const product = await ProductModel.findById(p.product).session(session);
+              if (product) {
+                const receivedQty = p.receivedQuantity !== undefined && p.receivedQuantity !== null
+                  ? Number(p.receivedQuantity)
+                  : Number(p.quantity || 0);
+
+                if (receivedQty > 0) {
+                  // Find the product in the target location
+                  const targetProduct = await ProductModel.findOne({
+                    itemCode: product.itemCode,
+                    locationId: linkedInbound.toLocation,
+                  }).session(session);
+
+                  if (targetProduct) {
+                    console.log(`  - Reversing ${receivedQty} units of ${product.productName}`);
+                    targetProduct.stock -= receivedQty; // Reverse the stock addition
+                    await targetProduct.save({ session });
                   }
                 }
               }
             }
-
-            // Delete the linked inbound transaction
-            await TransactionModel.findByIdAndDelete(linkedInbound._id).session(session);
+          } else {
+            console.log(`✅ Inbound is ${linkedInbound.status}, no stock to reverse`);
           }
+
+          // Delete the linked inbound transaction (regardless of status)
+          console.log("🗑️ Deleting linked inbound transaction...");
+          await TransactionModel.findByIdAndDelete(linkedInbound._id).session(session);
+          console.log("✅ Linked inbound transaction deleted");
+        } else {
+          console.log("⚠️ No linked inbound transaction found");
         }
 
         // Mark the purchase transaction as cancelled
@@ -532,9 +668,11 @@ const createTransaction = async (req, res) => {
         transaction.cancelledAt = new Date();
         await transaction.save({ session });
 
+        console.log("✅ Committing cancellation...");
         await session.commitTransaction();
         session.endSession();
 
+        console.log("✅ Purchase order cancelled successfully:", transaction._id);
         res.status(200).json({
           success: true,
           message: "Purchase transaction cancelled and linked inbound deleted successfully",
@@ -542,6 +680,7 @@ const createTransaction = async (req, res) => {
         });
       } catch (err) {
         console.error("❌ Cancel Transaction Error:", err);
+        console.error("❌ Error stack:", err.stack);
         await session.abortTransaction();
         session.endSession();
         res.status(500).json({ success: false, message: err.message || "Server error" });

@@ -5,11 +5,13 @@ import TransactionForm from "../components/TransactionForm";
 import { FaPlus, FaEye } from "react-icons/fa";
 import { motion } from "framer-motion";
 import authHeaders from "../utils/authHeaders";
+import Alert from "../components/Alert";
 
 const Transactions = () => {
   const [transactions, setTransactions] = useState([]);
   const [selectedTx, setSelectedTx] = useState(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [alert, setAlert] = useState(null);
 
   const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
@@ -43,35 +45,58 @@ const Transactions = () => {
     fetchTransactions();
   }, []);
 
-  // Handle approval/rejection
+  // Handle approval/rejection/cancellation
   const handleApproval = async (id, action) => {
     try {
-      const endpoint = action === "approve" ? "approve" : "reject";
+      // Map action to endpoint
+      let endpoint;
+      if (action === "approve") endpoint = "approve";
+      else if (action === "reject") endpoint = "reject";
+      else if (action === "cancel") endpoint = "cancel";
+      else if (action === "move-to-draft") endpoint = "move-to-draft";
+      else if (action === "resubmit") endpoint = "resubmit";
+      else if (action === "submit") endpoint = "submit";
+      else {
+        console.error("Unknown action:", action);
+        setAlert({ type: "error", message: `Unknown action: ${action}` });
+        return;
+      }
+
       const res = await fetch(`${API_BASE_URL}/api/transaction/${id}/${endpoint}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${sessionStorage.getItem("pos-token")}`,
+          Authorization: `Bearer ${sessionStorage.getItem("token")}`,
         },
       });
-  
+
       if (!res.ok) {
-        const text = await res.text();
-        console.error("Approval error:", text);
-        return alert(`Failed to ${action} transaction`);
+        const errorData = await res.json().catch(() => ({ message: "Unknown error" }));
+        console.error("Transaction action error:", errorData);
+        setAlert({ type: "error", message: errorData.message || `Failed to ${action} transaction` });
+        return;
       }
-  
+
       const data = await res.json();
       if (data.success) {
-        alert(`Transaction ${action}d successfully`);
+        // Success message based on action
+        let successMsg;
+        if (action === "approve") successMsg = "Transaction approved successfully!";
+        else if (action === "reject") successMsg = "Transaction rejected successfully!";
+        else if (action === "cancel") successMsg = "Purchase order cancelled successfully!";
+        else if (action === "move-to-draft") successMsg = "Transaction moved to draft successfully!";
+        else if (action === "resubmit") successMsg = "Transaction resubmitted successfully!";
+        else if (action === "submit") successMsg = "Draft submitted for approval successfully!";
+
+        setAlert({ type: "success", message: successMsg });
         fetchTransactions(); // Refresh list
         setSelectedTx(null); // Close modal
       } else {
-        alert(data.message || `Failed to ${action} transaction`);
+        setAlert({ type: "error", message: data.message || `Failed to ${action} transaction` });
       }
     } catch (err) {
       console.error(`Error on ${action}:`, err);
-      alert(`Error trying to ${action} transaction`);
+      setAlert({ type: "error", message: `Error trying to ${action} transaction` });
     }
   };
 
@@ -190,7 +215,7 @@ const Transactions = () => {
               if (selectedRows.length === 1) {
                 setSelectedTx(selectedRows[0]);
               } else {
-                alert("Please select only one transaction to view details");
+                setAlert({ type: "warning", message: "Please select only one transaction to view details" });
               }
             },
             color: "blue",
@@ -244,6 +269,15 @@ const Transactions = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Alert */}
+      {alert && (
+        <Alert
+          type={alert.type}
+          message={alert.message}
+          onClose={() => setAlert(null)}
+        />
       )}
     </motion.div>
   );

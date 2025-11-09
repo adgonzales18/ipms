@@ -8,6 +8,7 @@ const CompanySchema = new mongoose.Schema(
         companyContactName: {type: String},
         companyContactNumber: {type: Number},
         companyOfficeNumber : {type: Number},
+        terms: {type: String},
     },
     { timestamps: true}
 );
