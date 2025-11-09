@@ -17,7 +17,10 @@ dotenv.config();
 const app = express();
 
 const allowedOrigins = [
-    'http://localhost:5173'
+    'http://localhost:5173',
+    'https://ipms-one.vercel.app',
+    'https://ipms-7pfu32psg-avril-gonzales-projects.vercel.app',
+    'https://ipms-avril-gonzales-projects.vercel.app/'
 ]
 
 app.use(cors({
